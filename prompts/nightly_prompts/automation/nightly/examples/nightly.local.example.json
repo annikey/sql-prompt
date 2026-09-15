@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "runtimeApproved": false,
+  "openCodeCommand": "opencode.cmd",
+  "extraPath": ["%LOCALAPPDATA%/Programs/nvmx/node"],
+  "logRoot": "../local/nightly-logs",
+  "stopFile": "../local/STOP",
+  "startTimeLocal": "02:05",
+  "stopTimeLocal": "07:30",
+  "maxRunMinutes": 300,
+  "taskTimeoutMinutes": 60,
+  "verificationTimeoutMinutes": 45,
+  "maxTasks": 3,
+  "allowVerifiedDependencies": false,
+  "sharedInstructionFiles": [],
+  "projects": [
+    {
+      "id": "project-a",
+      "enabled": true,
+      "repoPath": "D:/work/project-a",
+      "worktreePath": "D:/work/nightly/project-a",
+      "expectedBranch": "ai/nightly",
+      "model": "REPLACE_PROVIDER/REPLACE_MODEL",
+      "queuePath": "docs/nightly-plan.md",
+      "contextFiles": ["AGENTS.md"],
+      "allowedEditPaths": ["src/*", "tests/*", "docs/tickets/*"],
+      "verificationScript": ".ai/verify-nightly.ps1"
+    }
+  ]
+}
