@@ -1,60 +1,115 @@
-# A02B — инвентаризация наполнения meta_queries/meta_metrics
+# STEP 003 — legacy query-exporter provenance in the repository
 
 ## CONTEXT
 
-Ты — внутренний coding-agent в D:/NEWGIT/sql_exporter; ранее работали в ветке FOSQL-12128. Внешний инженер не имеет доступа к репозиторию и проверяет каждый результат перед следующим запуском.
+We are performing a compatibility-first migration of an old SQL-to-Prometheus exporter to Python 3.12. Do not design or implement the replacement yet.
 
-Готовится миграция старого query-exporter на Python 3.12; способ замены ещё не выбран. Генератор и схема двух metadata-таблиц уже изучены. Владелец-разработчик подтвердил: описание таблиц исчерпывающее; дополнительных ограничений/индексов/defaults искать больше не нужно; наполнение поддерживается в проекте и загружается скриптами проекта в БД.
+Accepted facts relevant to this task:
 
-Генератор читает обе таблицы, связывает записи по query_name. metric_type — индекс списка 0=counter, 1=gauge, 2=histogram, 3=summary; obj_type: V -> SELECT * FROM, SP -> EXECUTE; run_interval передаётся как есть. Metric names/types/семантику менять запрещено.
-
-Уже показаны два разных target-набора:
-- .prod/3_DCL/ABACUS/FUTURES_HOPE/exporter.meta_queries/initial.sql: Total_performance -> [exporter].[performance_total] и General_metrics -> [exporter].[server_general]; оба V, оба 1m. Данные заданы JSON, загрузка через OPENJSON/MERGE; видна ветка удаления отсутствующих в source строк.
-- .prod/3_DCL/REPARA/REESTR/exporter.meta_metrics/initial.sql: есть metric_type 0 и 1; query_name General_metrics, Total_performance, blocked_processes, disk_space, io_reestr, memory. Среди gauge видны active_transactions_total, percent_log_used_total, tasks_running_total. Есть пустые descriptions.
-
-Пути прочитаны с фотографий: проверь точное написание локально. Не соединяй queries из первого target с metrics второго как данные одной БД.
+- `scripts/query-exporter.py` is expected to be a thin wrapper importing `query_exporter.main.script`.
+- The runtime currently fails under Python 3.12 because legacy code imports `ASYNCIO_STRATEGY` from `sqlalchemy_aio`.
+- The generator and metadata contract are already investigated. Do not repeat that work.
+- Repository metadata contains the same metric names (`delay_read`, `delay_write`, `r`, `w`) in several queries. Exact legacy runtime implementation is therefore needed before interpreting series identity or overwrite behavior.
+- The last accepted source revision was `dc87828d1dfaddcd9ee68e712468ad59ea97d8ce` on branch `FOSQL-12128`. Record the actual revision at the start; do not assume it is unchanged.
 
 ## GOAL
 
-Одна задача: составить полный в явно указанной области исходников inventory значений и связей из скриптов наполнения только exporter.meta_queries и exporter.meta_metrics.
+Determine the exact provenance of the legacy `query_exporter` runtime that can be established from this repository alone: wrapper entry point, declared or pinned distribution/version, packaging/build references, and whether matching runtime source or an installable artifact is present in the repository.
+
+This task identifies the implementation. It does not analyze its behavior.
 
 ## SCOPE
 
 READ-ONLY. DO NOT MODIFY ANY FILES.
 
-1. Учти применимые инструкции; укажи HEAD, ветку и исходное состояние дерева, ничего не переключая.
-2. Найди файлы наполнения двух таблиц. Начни с .prod/3_DCL и названий exporter.meta_queries/exporter.meta_metrics; этот каталог нужно просмотреть явно, даже если он ignored. Если текущий исходный набор расположен иначе, найди только соответствующие файлы по именам. Не исследуй весь проект и не возвращайся к проверке происхождения .prod.
-3. Читай активные payload JSON/INSERT/MERGE. Комментарий с примером выгрузки из БД не является набором данных. Учитывай видимые OPENJSON WITH-преобразования и merge-ключи/ветку удаления, чтобы отличить содержимое payload от гарантированного результата применения. Скрипты не запускать.
-4. Сохраняй границы server/database. Для каждого набора установи все query_name, obj_name, obj_type, run_interval и связанные metric_name/metric_type. Повторы одинаковых наборов можно объединить в выводе с полным списком targets. Одинаковое query_name само по себе не делает наборы одинаковыми.
-5. Получи distinct obj_type, metric_type, run_interval с учётом всех исследованных наборов. Отдельно отметь NULL/отсутствующие JSON-поля, пустые строки, неизвестные значения, metric_type вне 0..3; ничего не нормализуй.
-6. Проверь по данным: metric с отсутствующим query в том же target; query без metrics; повторы одной metric_name в разных queries/targets; различия type/description у одного metric_name; description NULL/отсутствует/пустая строка. Это поиск конкретных особенностей текущего контракта, а не общий code review.
+You may inspect only:
+
+- `scripts/query-exporter.py` and directly adjacent runtime/package metadata such as `meta.info` if present in the repository;
+- dependency declarations and lock/manifests used by this project (`requirements*`, constraints, setup/pyproject/Pipfile/poetry files, Gradle dependency/package lists, environment/bootstrap scripts);
+- `build.gradle` only where it refers to Python runtime dependencies, the wrapper, virtualenv, or packaging of query-exporter;
+- repository files or archives whose names/content directly indicate `query_exporter`, `query-exporter`, `sqlalchemy_aio`, `SQLAlchemy`, `pyodbc`, `prometheus_client`, or a Python distribution/version;
+- Git metadata needed to report revision and worktree state.
+
+Use a narrow filename/content search to locate these items. A repository-wide textual search for the exact identifiers above is allowed; do not perform a general architecture survey.
 
 ## DO NOT
 
-Не менять файлы, создавать отчёт на диске или чистить дерево. Не запускать SQL, генератор, Gradle, тесты, runtime, подключение к БД/сети и установку пакетов. Не читать XML/DSN/credentials. Не изучать схемы таблиц, дополнительные индексы, бизнес-views, legacy runtime или весь deployment. Не исправлять counter/gauge, имена и плохие данные. Не считать source inventory доказательством применённой ревизии production или совпадения всех targets с текущим watchlist.
+- Do not modify, format, generate, delete, stash, reset, commit, or create files.
+- Do not write the report into the repository; return it only in the response.
+- Do not use network access or web search.
+- Do not install, upgrade, uninstall, import, or execute Python packages.
+- Do not activate or inspect a server virtualenv outside the repository.
+- Do not run Gradle, project scripts, SQL, tests, services, containers, or deployment commands.
+- Do not open YAML/DSN files containing credentials and do not print secrets.
+- Do not analyze metric mapping, scheduling, HTTP behavior, DB failure handling, or propose replacement architecture.
+- Do not assume that an unpinned package equals any current upstream release.
+- Do not treat a package filename, comment, or `meta.info` value as authoritative without explaining how it is connected to the packaged runtime.
+- Do not investigate generator logic or metadata values again.
 
 ## EXPECTED OUTPUT
 
-Верни Markdown-отчёт A02B — Metadata values, желательно до двух страниц сводки плюс компактный перечень:
+Return one Markdown report in the response with these sections:
 
-1. STATUS COMPLETE / PARTIAL / BLOCKED; HEAD/ветка; coverage: target -> два файла. Missing пары и неоднозначные варианты указать явно.
-2. Общие наборы obj_type/metric_type/run_interval; отдельно — наличие histogram/summary и нестандартных значений в исследованном наборе. Отрицательный вывод ограничить этим набором.
-3. Для каждого уникального набора: query_name -> obj_name, obj_type, interval; ниже список metric_name с числовым metric_type и его mapping. Список имён должен быть точным и полным; одинаковые наборы не дублировать. Не переименовывать значения при выводе. Полные descriptions не нужны: достаточно NULL/пустых/конфликтующих случаев.
-4. Найденные несовпадения и особенности SCOPE 6 с target, path:lines и минимальной цитатой. Отсутствие проблемы тоже указывать с границей покрытия.
-5. UNKNOWN/HANDOFF: неполнота, минимальный недостающий артефакт, команды, состояние дерева до/после, подтверждение отсутствия записей/запусков проекта. Не начинать следующий этап.
+1. `STATUS`: `COMPLETE`, `PARTIAL`, or `BLOCKED`.
+2. `REVISION AND WORKTREE`:
+   - full `git rev-parse HEAD`;
+   - branch;
+   - short status before and after;
+   - statement that no files were changed by this task.
+3. `ENTRY POINT`:
+   - exact path and complete numbered content of the thin wrapper;
+   - any repository evidence showing how that wrapper is packaged or invoked, with narrow path/line citations.
+4. `DEPENDENCY PROVENANCE` table with columns:
+   - `evidence path:lines`;
+   - `declared name`;
+   - `version/constraint exactly as written`;
+   - `role or connection to runtime`;
+   - `strength`: exact pin / range / unpinned / comment / artifact metadata.
+   Include `query-exporter`/`query_exporter`, `sqlalchemy-aio`/`sqlalchemy_aio`, SQLAlchemy, pyodbc, PyYAML and prometheus client only when evidence is actually present.
+5. `SOURCE OR ARTIFACT AVAILABILITY`:
+   - list any vendored package directory, wheel, sdist, archive, lock cache, or copied source that could establish the legacy implementation;
+   - for each, give exact path, artifact filename/version evidence and whether its contents were inspected;
+   - if none exists, state the bounded paths/patterns searched. Do not claim absence outside that boundary.
+6. `CONCLUSION`:
+   - strongest exact runtime identity justified by repository evidence;
+   - whether repository evidence is sufficient to inspect legacy behavior in the next read-only step;
+   - if insufficient, list the minimal server-side facts needed later, such as sanitized output of distribution metadata and filesystem path to installed package source. Do not provide or run those commands in this task.
+7. `COMMANDS`: exact read-only commands run.
+8. `UNRESOLVED`: contradictions, ambiguous pins, generated files absent from Git, or missing provenance links.
 
-Для фотографирования используй узкие списки и короткие code blocks. Длинную строку физически раздели только в ответе и отметь продолжение исходного номера. Не печатай огромные однострочные JSON или широкие таблицы.
+Keep excerpts narrow. Never include credentials, DSN contents, connection strings, or unrelated configuration.
 
 ## ACCEPTANCE CRITERIA
 
-Inventory покрывает явно перечисленный набор файлов/targets, ссылки query->metric проверены внутри каждого target. Все встреченные типы/интервалы учтены. NULL и пустые значения различаются. Исторические версии не объединены в вымышленный общий набор. Факты проверяются по источникам; отсутствие источника не замещено догадкой. Файлы не изменены.
+- Every claimed version or dependency relation is backed by a path and line range or by an identified artifact name/metadata record.
+- The wrapper's exact import and invocation are shown completely.
+- The report distinguishes exact pin, compatible range, unpinned declaration, transitive inference, and artifact metadata.
+- It establishes whether matching legacy source/artifact is locally available, or gives a bounded negative result.
+- It does not interpret runtime metric behavior or recommend implementation.
+- Worktree state is unchanged by this task.
 
 ## STOP CONDITIONS
 
-Если активный набор нельзя отличить от несовместимых исторических вариантов, отметь конкретные варианты и вопрос владельцу, не восстанавливай весь deployment. Если payload динамически строится недоступным кодом/данными, верни PARTIAL и точный минимальный источник. Не запускай проект ради inventory.
+Stop without expanding scope if:
+
+- repository access or Git metadata is unavailable;
+- the relevant dependency data is encrypted, credential-bearing, generated only on a server, or outside the repository;
+- multiple conflicting versions are found and their packaging path cannot be resolved from the allowed files;
+- determining the installed version would require running/importing the broken environment, accessing a server, installing packages, or using the network.
+
+In that case, return `PARTIAL` or `BLOCKED`, cite what was found, and identify the single smallest missing artifact. Do not guess.
 
 ## COMMANDS / VALIDATION
 
-Отдельно выполни git rev-parse HEAD, git branch --show-current и git --no-optional-locks status --short --untracked-files=normal; status повтори в конце. Поиск — по указанным каталогам и именам двух metadata-объектов. rg при наличии; иначе штатный search/read или PowerShell, без установки.
+Use read-only commands such as:
 
-Для статического разбора JSON допустима обработка прочитанных литералов в памяти стандартными средствами уже доступного языка, без записи файлов, eval/exec, импорта/запуска кода проекта и исполнения SQL. При извлечении литералов учитывай T-SQL escaping; не исправляй исходный payload молча. Если надёжное извлечение требует отдельной реализации, верни пробел вместо написания нового инструмента.
+```bash
+git rev-parse HEAD
+git branch --show-current
+git --no-optional-locks status --short --untracked-files=normal
+find . -type f \( -iname 'requirements*' -o -iname '*constraints*' -o -iname 'pyproject.toml' -o -iname 'setup.py' -o -iname 'setup.cfg' -o -iname 'Pipfile*' -o -iname 'poetry.lock' -o -iname '*query*exporter*' -o -iname '*meta.info*' -o -iname '*.whl' -o -iname '*.tar.gz' -o -iname '*.zip' \) -print
+grep -RIn --exclude-dir=.git -E 'query[-_]exporter|sqlalchemy[-_]aio|SQLAlchemy|pyodbc|prometheus[_-]client|PyYAML' <narrow paths found above>
+nl -ba <relevant file>
+```
+
+If `rg` is available, it may replace `find`/`grep`. Do not run a command that reads generated secrets or dependency caches outside the repository. Repeat `git status` at the end and compare it with the initial output.
